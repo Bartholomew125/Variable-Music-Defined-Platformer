@@ -9,27 +9,10 @@ from colorsys import hsv_to_rgb as HTR
 w = 600
 h = 600
 
-tick = 165
-
 screen = pg.display.set_mode((w,h))
 clock = pg.time.Clock()
 
 pg.font.init()
-
-
-# variables
-white = (255, 255, 255)
-red = (255, 0, 0)
-ticks = 200
-oldHeight = h/1.5
-maxDistance = h/4
-maxMovementSpeed = 1
-g = 1/tick * 4
-k_left = False
-k_right = False
-k_up = False
-startSong = True
-lose = False
 
 
 # SPOTIFY SETUP
@@ -38,18 +21,19 @@ lose = False
 client_id = '5b68ffcb63924892995c6b9b02ead2e0'
 client_secret = 'e6bc5bd16c4741d38f4609d0e1c57440'
 redirect_uri = 'http://localhost:8888/callback'
-scope = 'user-modify-playback-state'
+scope = 'user-modify-playback-state user-read-currently-playing'
 
 # Prompt the user to authorize your app to access their Spotify account
 scope = "user-read-playback-state,user-modify-playback-state"
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri, scope=scope))
 
 # Replace the song title and artist below with the song you want to play
-song_title = "6705"
-artist_name = "Kellermensch"
+song_title = "Feel it still"
+artist_name = "King Gizzard & The Lizzard Wizard"
 
 # Search for the song and get its URI
 results = sp.search(q=f"{song_title} {artist_name}", type="track", limit=1)
+print(results["tracks"]["items"])
 if results["tracks"]["items"]:
     track_uri = results["tracks"]["items"][0]["uri"]
     track_features = sp.audio_features(tracks=[track_uri])
@@ -63,15 +47,30 @@ else:
 
 
 # music setup
-bpm = tempo
+bpm = 120
 bps = bpm/60
-
+tick = 165
 
 # size setup
 character_size = w/50
-character_speed = 0.5
+character_speed = 2
 box_size = w/6
 box_speed = bps
+
+
+# variables
+white = (255, 255, 255)
+red = (255, 0, 0)
+ticks = 200
+oldHeight = h/1.5
+maxDistance = h/5
+maxMovementSpeed = 1
+g = 1/tick * 20
+k_left = False
+k_right = False
+k_up = False
+startSong = True
+lose = False
 
 
 # classes here
@@ -87,13 +86,7 @@ class Character:
         self.vec = (0, 0)
     
     def jump(self):
-        self.vec = self.vec[0], self.vec[1]-1
-
-    def move(self, dir):
-        if dir == "left":
-            self.vec = -character_speed, self.vec[1]
-        elif dir == "right":
-            self.vec = character_speed, self.vec[1]
+        self.vec = self.vec[0], self.vec[1]-4
 
     def update(self):
         self.pos = addVector(self.pos, self.vec)
@@ -113,7 +106,6 @@ class Box:
         self.x = pos[0]
         self.y = pos[1]
         self.rect = pg.Rect(self.pos, self.dim)
-
         self.vec = [0, 0]
     
     def update(self):
@@ -141,22 +133,26 @@ Bateman = Character((w/2, h/2), (character_size, character_size), white)
 
 # THE LOOP
 running = True
+spawn = False
 while running:
     for event in pg.event.get():
+
         if event.type == pg.QUIT:
             running = False
+
         if event.type == pg.KEYDOWN:
             if event.key == pg.K_ESCAPE:
                 running = False
             if event.key == pg.K_UP:
                 k_up = True
-            if event.key ==pg.K_LEFT:
+            if event.key == pg.K_LEFT:
                 k_left = True
             if event.key == pg.K_RIGHT:
                 k_right = True
+
         if event.type == pg.KEYUP:
             if event.key == pg.K_UP:
-                k_up  == False
+                k_up  = False
             if event.key == pg.K_LEFT:
                 k_left = False
             if event.key == pg.K_RIGHT:
@@ -175,26 +171,18 @@ while running:
                 if box.pos[1]-Bateman.dim[1] < Bateman.pos[1] < box.pos[1]:
                     Bateman.pos = Bateman.pos[0], box.pos[1]-Bateman.dim[1]
                     Bateman.vec = (0, 0)
-                
+                    if k_up:
+                        k_up = False
+                        Bateman.jump()
+                    
                 # side collision
                 else:
                     Bateman.vec = (-box.speed, Bateman.vec[1])
-        
 
         # check if bateman has fallen
         if Bateman.pos[1] > h or Bateman.pos[0] < 0:
             lose = True
-        
-
-        # Bateman movement
-        if k_up:
-            k_up = False
-            Bateman.jump()
-        if k_left:
-            Bateman.move("left")
-        if k_right:
-            Bateman.move("right")
-
+    
 
         # OOB box removal
         for box in boxes:
@@ -227,6 +215,7 @@ while running:
                 sp.start_playback(uris=[track_uri])
                 startSong = False
     
+    
     # damn bro, you suck
     else:
         font = pg.font.SysFont('comicsansms', 50)
@@ -236,7 +225,10 @@ while running:
     # UPDATE
     for box in boxes:
         box.update()
-    Bateman.update()
+        if box.pos[0] == w/2:
+            spawn = True
+    if spawn == True:
+        Bateman.update()
     clock.tick(tick)
     ticks += 1
     
