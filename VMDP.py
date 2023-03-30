@@ -7,6 +7,7 @@ from math import sqrt
 from spotipy.oauth2 import SpotifyOAuth
 from colorsys import hsv_to_rgb as HTR
 import threading
+import time
 
 # setup
 w = 600
@@ -46,7 +47,6 @@ ticks = 200
 oldHeight = h/1.5
 maxDistance = h/5/2
 maxMovementSpeed = 1
-g = 1/tick * 10
 k_left = False
 k_right = False
 k_up = False
@@ -58,10 +58,7 @@ is_playing = False
 old_track = 0
 current_track = 0
 jump_speed = 4
-kringle = maxDistance
-t= 0
-kringle = -1/2*g*t**2 + sqrt(jump_speed**2+(bps**2/(tick**2)))
-
+g = 0
 
 # classes here
 class Character:
@@ -72,7 +69,6 @@ class Character:
         self.x = pos[0]
         self.y = pos[1]
         self.rect = pg.Rect(self.pos, self.dim)
-
         self.vec = (0, 0)
     
     def jump(self):
@@ -80,7 +76,7 @@ class Character:
 
     def update(self):
         self.pos = addVector(self.pos, self.vec)
-        self.vec = self.vec[0], self.vec[1]+g
+        self.vec = self.vec[0], self.vec[1]-g
         self.rect = pg.Rect(self.pos, self.dim)
 
     def draw(self):
@@ -206,9 +202,10 @@ Bateman = Character((w/2, h/3), (character_size, character_size), white)
 energy, key, valence = 1, 0.3, 0.43
 BG = Background()
 
+time.sleep(0.3)
 # THE LOOP
 while running:
-    #print(sqrt(bps**2/(tick**2))*165)
+    #print(bpm)
     for event in pg.event.get():
 
         if event.type == pg.QUIT:
@@ -232,19 +229,23 @@ while running:
             if event.key == pg.K_RIGHT:
                 k_right = False
 
-
     # update music variables
     bps = bpm/60
     box_speed = bps
 
 
     # check for track change
-    if type(current_track) != type(0):
+    if type(current_track) != type(0) and current_track is not None and current_track["item"] is not None:
         if old_track != current_track['item']['uri']:
             old_track = current_track['item']['uri']
             BG.new(energy, key, valence, (bps/2, 0))
             print("NEW TRACK!")
             Bateman.pos = (w/2, h/3)
+            Bateman.vec = (0, 0)
+            spawn = False
+            g = -(2*jump_speed**2 * maxDistance - 2*bps*jump_speed * (tick-box_size)) / (tick - box_size)**2
+            g = g/2
+            print(track_name, jump_speed, maxDistance, bps, bpm, tick, box_size, g)
 
         
     # check if a song is found, and it is playing
@@ -307,16 +308,14 @@ while running:
         # damn bro, you suck
         else:
             font = pg.font.SysFont('comicsansms', 50)
-            screen.blit(font.render("Y r u GAi !?", True, (255, 255, 255)), (w/3, h/3))
+            screen.blit(font.render("U DED", True, (255, 255, 255)), (w/3, h/3))
 
 
         # UPDATE
         for box in boxes:
             box.update()
-            if not spawn:
-                if box.pos[0] <= w/2:
-                    spawn = True
-        if spawn == True:
+        if spawn == True or k_up:
+            spawn = True
             Bateman.update()
         for p in BG.points:
             p = (p[0]-1, p[1])
