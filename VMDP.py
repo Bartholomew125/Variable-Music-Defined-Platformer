@@ -1,6 +1,7 @@
 # importing all them goodies
 import pygame as pg
 from random import random, randint
+import random as rand
 import spotipy
 from math import sqrt
 from spotipy.oauth2 import SpotifyOAuth
@@ -26,8 +27,8 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=client_id, client_secre
 
 
 # music setup
-bpm = 0
-bps = 0
+bpm = 1
+bps = 1
 tick = 165
 
 
@@ -45,17 +46,18 @@ ticks = 200
 oldHeight = h/1.5
 maxDistance = h/5/2
 maxMovementSpeed = 1
-g = 0
+g = 1/tick * 10
 k_left = False
 k_right = False
 k_up = False
-startSong = True
 lose = False
 songFound = False
 running = True
 spawn = False
 is_playing = False
-jump_speed = 2
+old_track = 0
+current_track = 0
+jump_speed = 4
 kringle = maxDistance
 t= 0
 kringle = -1/2*g*t**2 + sqrt(jump_speed**2+(bps**2/(tick**2)))
@@ -106,6 +108,52 @@ class Box:
         pg.draw.rect(screen, self.color, self.rect)
         
 
+class Background:
+    def __init__(self):
+        self.pos = (0, 0)
+        self.speed = (0, 0)
+        self.color = (0, 0, 0)
+        self.texture_seed = 0
+        self.points = []
+
+    def update(self):
+        pass
+    
+    def new(self, energy, key, valence, speed):
+        self.speed = speed
+        self.energy = energy
+        self.valence = valence
+        self.key = key
+        self.color = HTR(1/(key+2), 1, 255)
+        self.top = []
+        self.bottom = []
+        self.layers = []
+
+        # generate points of both halves and add to layer
+        rand.seed(self.energy+self.valence+self.key)
+        self.top.append((0, 0))
+        for i in range(0, int(self.energy*30), 1):
+            point = (w/int(self.energy*30) * i, randint(0, int(h/4*valence)))
+            self.top.append(point)
+        point = (w, self.top[1])
+        self.top.append((w, 0))
+
+        rand.seed(self.energy-self.valence+self.key)
+        self.bottom.append((0, h))
+        for i in range(0, int(self.energy*30), 1):
+            point = (w/int(self.energy*30) * i, h-randint(0, int(h/4*valence)))
+            self.bottom.append(point)
+        point = (w, self.bottom[1])
+        self.bottom.append((w, h))
+        layer = [self.top, self.bottom]
+        self.layers.append(layer)
+    
+    def draw(self):
+        for layer in self.layers:
+            for half in layer:
+                pg.draw.polygon(screen, self.color, half)
+        
+
 # functions here
 def collide(object1, object2):
    return True if object1.rect.colliderect(object2.rect) else False
@@ -114,12 +162,15 @@ def addVector(v1, v2):
    return v1[0]+v2[0], v1[1]+v2[1]
 
 def searchSong():
-    global bpm
-    global track_name
+    global key
     global energy
+    global valence
+    global track_name
+    global bpm
     global songFound
     global running
     global is_playing
+    global current_track
 
     while running:
         # Get information about the track you are currently playing
@@ -133,7 +184,10 @@ def searchSong():
             bpm = features[0]["tempo"]
             energy = features[0]["energy"]
             is_playing = current_track["is_playing"]
-            print(track_name, bpm)
+            key = features[0]["key"]
+            valence = features[0]["valence"]
+            
+            #print(track_name, bpm)
             songFound = True
         else:
             #print("searching")
@@ -141,6 +195,7 @@ def searchSong():
             #print(songFound)
 
 
+# start thread
 thread = threading.Thread(target=searchSong)
 thread.start()
 
@@ -148,11 +203,12 @@ thread.start()
 #before loop setup
 boxes = []
 Bateman = Character((w/2, h/3), (character_size, character_size), white)
-
+energy, key, valence = 1, 0.3, 0.43
+BG = Background()
 
 # THE LOOP
 while running:
-    print(sqrt(bps**2/(tick**2))*165)
+    #print(sqrt(bps**2/(tick**2))*165)
     for event in pg.event.get():
 
         if event.type == pg.QUIT:
@@ -182,6 +238,16 @@ while running:
     box_speed = bps
 
 
+    # check for track change
+    if type(current_track) != type(0):
+        if old_track != current_track['item']['uri']:
+            old_track = current_track['item']['uri']
+            BG.new(energy, key, valence, (bps/2, 0))
+            print("NEW TRACK!")
+            Bateman.pos = (w/2, h/3)
+
+        
+    # check if a song is found, and it is playing
     if songFound and is_playing:
         screen.fill((0, 0, 0))
 
@@ -204,12 +270,13 @@ while running:
                     else:
                         Bateman.vec = (-box.speed, Bateman.vec[1])
 
+
             # check if bateman has fallen
             if Bateman.pos[1] > h or Bateman.pos[0] < 0:
                 lose = True
         
 
-            # OOB box removal
+            # Out Of Bounds box removal
             for box in boxes:
                 if box.x+box.dim[0] <= 0:
                     boxes.remove(box)
@@ -218,6 +285,7 @@ while running:
             # update old box height
             if len(boxes) > 0:
                 oldHeight = boxes[-1].y
+
 
             # summon boxes
             if ticks >= tick/bps:
@@ -234,15 +302,12 @@ while running:
                     boxes.append(Box((w, newHeight), (box_size, box_size/2), boxcol, box_speed))
                 else:
                     boxes.append(Box((w, newHeight), (box_size, h), boxcol, box_speed))
-                
-                if startSong:
-                    startSong = False
         
         
         # damn bro, you suck
         else:
             font = pg.font.SysFont('comicsansms', 50)
-            screen.blit(font.render("HA YOU SUCK", True, (255, 255, 255)), (w/3, h/3))
+            screen.blit(font.render("Y r u GAi !?", True, (255, 255, 255)), (w/3, h/3))
 
 
         # UPDATE
@@ -253,15 +318,20 @@ while running:
                     spawn = True
         if spawn == True:
             Bateman.update()
+        for p in BG.points:
+            p = (p[0]-1, p[1])
+        BG.update()
         clock.tick(tick)
         ticks += 1
         
 
         # DRAW SHIT
+        BG.draw()
         Bateman.draw()
         for box in boxes:
             box.draw()
-        
+    
+    # if nothing is playing
     elif not is_playing:
         Bateman.pos = (w/2, h/3)
 
