@@ -11,6 +11,7 @@ import threading
 import time
 from urllib.request import urlopen
 import io
+import scipy.ndimage as ndimage
 
 # setup
 w = 600
@@ -58,13 +59,16 @@ running = True
 spawn = False
 is_playing = False
 game_start = False
+settings = False
 timestamp = 0
 duration = 0
 artist = None
+selection = None
 
 black = (0, 0, 0)
 white = (255, 255, 255)
 red = (255, 0, 0)
+spotify_green = (29, 185, 84)
 ticks = 200
 old_height = h/1.5
 max_distance = h/5/2
@@ -72,6 +76,8 @@ old_track_name = None
 current_track = 0
 jump_speed = 4
 g = 0
+volume = 50
+bpm_multiplier = 1
 
 # __CLASSES__
 # Character class
@@ -167,24 +173,22 @@ class Button:
         self.originalButtonColor = buttonColor
         self.buttonColor = buttonColor
         self.originalTextColor = textColor
-        self.textColor = textColor
+        self.text_color = textColor
         self.rect = pg.Rect(self.pos, self.dimensions)
         self.selected = False
-        self.buttonText = text
+        self.button_text = text
         self.borderRadius = int(cornerRadius)
 
     def updateFont(self):
-        self.font = pg.font.Font("freesansbold.ttf", int(self.dimensions[1]/3))
-        self.fontDimensions = self.font.size(self.buttonText)
-        self.text = self.font.render(self.buttonText, True, self.textColor)
-        self.textPos = (self.pos[0]+(self.dimensions[0]-self.fontDimensions[0])/2, 
-                        self.pos[1]+(self.dimensions[1]-self.fontDimensions[1])/2)
+        self.text = Text("freesansbold.ttf", self.dimensions[1]/3, self.button_text, self.text_color)
+        self.textPos = (self.pos[0]+(self.dimensions[0]-self.text.dimensions[0])/2, 
+                        self.pos[1]+(self.dimensions[1]-self.text.dimensions[1])/2)
 
     def update(self):
         # if hover over button
         if self.selected:
             self.buttonColor = hueChange(self.originalButtonColor, 100)
-            self.textColor = hueChange(self.originalTextColor, 100)
+            self.text_color = hueChange(self.originalTextColor, 100)
             self.dimensions = (self.originalDimensions[0]*1.1, self.originalDimensions[1]*1.1)
             self.pos = (self.centerPos[0]-self.dimensions[0]/2, self.centerPos[1]-self.dimensions[1]/2)
             self.rect = pg.Rect(self.pos, self.dimensions)
@@ -192,7 +196,7 @@ class Button:
         # if not hover over
         else:
             self.buttonColor = self.originalButtonColor
-            self.textColor = self.originalTextColor
+            self.text_color = self.originalTextColor
             self.dimensions = self.originalDimensions
             self.pos = (self.centerPos[0]-self.dimensions[0]/2, self.centerPos[1]-self.dimensions[1]/2)
             self.rect = pg.Rect(self.pos, self.dimensions)
@@ -200,7 +204,79 @@ class Button:
 
     def draw(self):
         pg.draw.rect(screen, self.buttonColor, self.rect, width=0, border_radius=self.borderRadius)
-        screen.blit(self.text, self.textPos)
+        screen.blit(self.text.text, self.textPos)
+
+
+# Text render class
+class Text:
+    def __init__(self, font, font_size, text, color):
+        self.font = pg.font.Font(font, int(font_size))
+        self.text = self.font.render(text, True, color)
+        self.dimensions = self.font.size(text)
+
+
+# Slider class
+class Slider:
+    def __init__(self, pos1, pos2, thickness, color, variable_name, range, steps, text):
+        self.pos1 = pos1
+        self.pos2 = pos2
+        self.thickness = thickness
+        self.slider_color = color
+        self.knob_color = (100, 100, 100)
+        self.variable_name = variable_name
+        self.variable_value = globals()[variable_name]
+        self.range = range
+        self.steps = steps
+        self.knob_pos = (mapValues(self.variable_value, range[0], range[1], pos1[0], pos2[0]), pos1[1])
+        self.hover = False
+        self.selected = False
+        self.knob = Circle(self.knob_pos, self.thickness)
+        self.value = 0
+        self.text_name = text
+        if steps != 0:
+            self.total_steps = (range[1]-range[0])/steps
+        self.updateFont()
+    
+    def follow(self, pos):
+        if self.selected:
+            self.knob.pos = (pos[0], self.knob.pos[1])
+    
+    def updateFont(self):
+        self.text = Text("GothamMedium.ttf", 18, self.text_name, spotify_green)
+        self.text_pos = (self.pos1[0]-self.text.dimensions[0]-self.knob.radius*2, self.pos1[1]-self.text.dimensions[1]/2)
+    
+    def update(self):
+        # knob selection color change
+        if self.hover or self.selected:
+            self.knob_color = spotify_green
+        else:
+            self.knob_color = white
+        
+        # limit movement of knob
+        if self.knob.pos < self.pos1:
+            self.knob.pos = self.pos1
+        if self.knob.pos > self.pos2:
+            self.knob.pos = self.pos2
+
+        # steps locking
+        if self.steps != 0:
+            pass
+
+        # update assigned variable
+        self.value = mapValues(self.knob.pos[0], self.pos1[0], self.pos2[0], self.range[0], self.range[1])
+        globals()[self.variable_name] = self.value
+    
+    def draw(self):
+        pg.draw.line(screen, self.slider_color, self.pos1, self.pos2, self.thickness)
+        pg.draw.circle(screen, self.knob_color, self.knob.pos, self.knob.radius)
+        screen.blit(self.text.text, self.text_pos)
+
+
+# Circle class
+class Circle:
+    def __init__(self, pos, radius):
+        self.pos = pos
+        self.radius = radius
 
 
 # Mouse Class
@@ -231,53 +307,61 @@ class Listening:
         self.progressBarPos2 = (self.pos[0]+self.size[0]/1.1, self.pos[1]+self.size[1]/1.3)
         self.progressBarLength = self.progressBarPos2[0]-self.progressBarPos1[0]
         self.progressRect = pg.Rect(self.progressBarPos1[0], self.progressBarPos1[1]-self.progressThickness/2,
-                                    self.progressBarLength, self.progressThickness)
-        self.track_text_pos = (self.pos[0]+200, self.pos[1]+self.size[1]/4*1)
-        self.artist_text_pos = (self.pos[0]+200, self.pos[1]+self.size[1]/4*2)
-
+        self.progressBarLength, self.progressThickness)
+        self.track_text_pos = (((self.pos[0]+self.size[1]*1.2)+(self.pos[0]+self.size[0]/1.1))/2, self.pos[1]+self.size[1]/3)
+        self.artist_text_pos = (((self.pos[0]+self.size[1]*1.2)+(self.pos[0]+self.size[0]/1.1))/2, self.pos[1]+self.size[1]/4*2)
 
     def new(self, imgurl, length, artist, trackName):
-        self.image_str = urlopen(imgurl).read()
-        self.image_file = io.BytesIO(self.image_str)
-        self.image = pg.image.load(self.image_file)
-        self.image = pg.transform.scale(self.image, (self.size[1], self.size[1]))
-        self.length = length
+        try:
+            # Load the image using Pygame
+            self.image_str = urlopen(imgurl).read()
+            self.image_file = io.BytesIO(self.image_str)
+            self.image = pg.image.load(self.image_file)
+            # Scale the image
+            self.image = pg.transform.scale(self.image, (w//2, 2//2))
 
-        self.artist = artist
-        self.track = trackName
-        self.updateFont()
+            # Convert the image to a numpy array
+            self.img_array = pg.surfarray.array2d(self.image)
+            self.blurred_img_array = ndimage.gaussian_filter(self.img_array, 5)
+            self.image = pg.surfarray.make_surface(self.blurred_img_array)
+
+            # Set the instance variables
+            self.length = length
+            self.artist = artist
+            self.track = trackName
+            self.updateFont()
+
+        except Exception as e:
+            print("Error loading image:", e)
+
 
     def updateFont(self):
         # track font render
-        self.font = pg.font.Font("GothamMedium.ttf", 18)
-        self.fontDimensions = self.font.size(self.track)
-        self.track_text = self.font.render(self.track, True, (29, 185, 84))
-        self.track_text_pos_offset = (self.track_text_pos[0]-self.fontDimensions[0]/2, 
-                                      self.track_text_pos[1]-self.fontDimensions[1]/2)
+        self.track_text = Text("GothamMedium.ttf", 18, self.track, spotify_green)
+        self.track_text_pos_offset = (self.track_text_pos[0]-self.track_text.dimensions[0]/2, 
+                                      self.track_text_pos[1]-self.track_text.dimensions[1]/2)
         
         # artist font render
-        self.font = pg.font.Font("GothamMedium.ttf", 13)
-        self.fontDimensions = self.font.size(self.artist)
-        self.artist_text = self.font.render(self.artist, True, (105, 105, 105))
-        self.artist_text_pos_offset = (self.artist_text_pos[0]-self.fontDimensions[0]/2, 
-                                       self.artist_text_pos[1]-self.fontDimensions[1]/2)
+        self.artist_text = Text("GothamMedium.ttf", 13, self.track, (94, 94, 94))
+        self.artist_text_pos_offset = (self.track_text_pos[0]-self.track_text.dimensions[0]/2, 
+                                      self.track_text_pos[1]-self.track_text.dimensions[1]/2)
 
     def update(self):
         self.progress = timestamp*self.progressBarLength/self.length
         self.progressBarPos2 = (self.progressBarPos1[0]+self.progress, self.progressBarPos1[1])
         self.boundingRect = pg.Rect(self.pos, self.size)
-
+    
     def draw(self):
         pg.draw.rect(screen, (24, 24, 24), self.boundingRect)
         pg.draw.rect(screen, (94, 94, 94), self.progressRect)
         pg.draw.circle(screen, (94, 94, 94), self.progressBarPos1, self.progressThickness/2)
         pg.draw.circle(screen, (94, 94, 94), (self.progressBarPos1[0]+self.progressBarLength, self.progressBarPos1[1]), self.progressThickness/2)
         if self.image is not None:
-            screen.blit(self.image, self.pos)
+            screen.blit(self.image, (0,0))
         if self.progress is not None and self.length is not None:
             if self.selected:
-                pg.draw.line(screen, (29, 185, 84), self.progressBarPos1, self.progressBarPos2, width=self.progressThickness)
-                pg.draw.circle(screen, (29, 185, 84), self.progressBarPos1, self.progressThickness/2)
+                pg.draw.line(screen, spotify_green, self.progressBarPos1, self.progressBarPos2, width=self.progressThickness)
+                pg.draw.circle(screen, spotify_green, self.progressBarPos1, self.progressThickness/2)
                 pg.draw.circle(screen, (255, 255, 255), self.progressBarPos2, self.progressThickness)
             else:
                 pg.draw.line(screen, (255, 255, 255), self.progressBarPos1, self.progressBarPos2, width=self.progressThickness)
@@ -285,8 +369,8 @@ class Listening:
                 pg.draw.circle(screen, (255, 255, 255), self.progressBarPos1, self.progressThickness/2)
 
         if self.artist_text is not None:
-            screen.blit(self.artist_text, self.artist_text_pos_offset)
-            screen.blit(self.track_text, self.track_text_pos_offset)
+            screen.blit(self.artist_text.text, self.artist_text_pos_offset)
+            screen.blit(self.track_text.text, self.track_text_pos_offset)
 
 # __FUNCTIONS__
 # Rectangle with Rectangle collision function
@@ -297,6 +381,19 @@ def rectRectCollide(object1, object2):
 # Position with Rectangle collision function
 def posRectCollide(pos, rect):
     return True if rect.collidepoint(pos) else False
+
+
+# Position with circle collision function
+def posCircleCollide(pos, circle):
+    return True if circle.pos[0]-circle.radius <= pos[0] <= circle.pos[0]+circle.radius and circle.pos[1]-circle.radius <= pos[1] <= circle.pos[1]+circle.radius else False
+
+
+# Map values
+def mapValues(value, leftMin, leftMax, rightMin, rightMax):
+    leftSpan = leftMax - leftMin
+    rightSpan = rightMax - rightMin
+    valueScaled = float(value - leftMin) / float(leftSpan)
+    return rightMin + (valueScaled * rightSpan)
 
 
 # Vector Addition
@@ -350,6 +447,14 @@ def searchSong():
             song_found = False
 
 
+# Return variable name from value
+def keyReturn(value):
+    dictonary = globals().copy()
+    for key, val in dictonary.items():
+        if val == value:
+            return key
+
+
 # start thread
 thread = threading.Thread(target=searchSong)
 thread.start()
@@ -360,19 +465,27 @@ Bateman = Character((w/2, h/3), (character_size, character_size), white)
 energy, key, valence = 1, 0.3, 0.43
 BG = Background()
 mouse = Mouse()
-listen = Listening((w-300, h-100), (300, 100))
+listen = Listening((w-600, h-200), (600, 200))
 
-# Setup buttons for menu
-buttons = []
-buttons.append(Button((w/4, h/2), (w/3, h/6), white, "Start Game", black, h/8))
-buttons.append(Button((w/4*3, h/2), (w/3, h/6), white, "Quit", black, h/8))
+# Setup buttons
+main_manu_buttons = []
+main_manu_buttons.append(Button((w/4, h/3), (w/3, h/6), white, "Start Game", black, h/8))
+main_manu_buttons.append(Button((w/4*3, h/3), (w/3, h/6), white, "Quit", black, h/8))
+main_manu_buttons.append(Button((w/4*2, h/1.7), (w/3, h/6), white, "Settings", black, h/8))
+settings_menu_buttons = []
+settings_menu_buttons.append(Button((w/6, h/11), (w/4, h/8), white, "Back", black, h/8))
+
+# Setup sliders
+settings_menu_sliders = []
+settings_menu_sliders.append(Slider((w/3.5, h/2), (w/4*3, h/2), 20, (94, 94, 94), "volume", (0, 100), 0, "Volume"))
+settings_menu_sliders.append(Slider((w/3.5, h/4), (w/4*3, h/4), 20, (94, 94, 94), "bpm_multiplier", (0, 4), 1, "Bpm scaler"))
 
 # Stagger time for Thread to catch up (Please optimize)
 time.sleep(0.4)
 
-
 # THE LOOP
 while running:
+    print(bpm_multiplier, volume)
     for event in pg.event.get():
 
         if event.type == pg.QUIT:
@@ -418,21 +531,31 @@ while running:
 
     # reset screen
     screen.fill(black)
-    
-    # menu
-    if not game_start:
+        # spotify currenlty listening handling
+    if posRectCollide(mouse.pos, listen.progressRect):
+        listen.selected = True
+    else:
+        listen.selected = False
+
+    #Draw listen in
+    listen.update()
+    listen.draw()
+    # Main menu
+    if not game_start and not settings:
         if listen.image is None and artist is not None and duration is not None:
             listen.new(current_track["item"]["album"]["images"][0]["url"], duration, artist, track_name)
-        for button in buttons:
+        for button in main_manu_buttons:
             if posRectCollide(mouse.pos, button.rect):
                 button.selected = True
                 if mouse.left_click:
-                    if button.buttonText == "Start Game":
+                    if button.button_text == "Start Game":
                         game_start = True
                         if lose:
                             key_r = True
-                    elif button.buttonText == "Quit":
+                    if button.button_text == "Quit":
                         running = False
+                    if button.button_text == "Settings":
+                        settings = True
             else:
                 button.selected = False
         
@@ -440,9 +563,51 @@ while running:
         if key_escape == True:
             running = False
         
-        for button in buttons:
+        for button in main_manu_buttons:
             button.update()
             button.draw()
+    
+    # Settings menu
+    elif not game_start and settings:
+        if key_escape:
+            key_escape = False
+            settings = False
+        
+        # buttons
+        for button in settings_menu_buttons:
+            if posRectCollide(mouse.pos, button.rect):
+                if selection is None:
+                    button.selected = True
+                    if mouse.left_click:
+                        if button.button_text == "Back":
+                            settings = False
+            else:
+                button.selected = False
+
+            if not mouse.left_click:
+                selection = None
+            
+            button.update()
+            button.draw()
+        
+        # sliders
+        for slider in settings_menu_sliders:
+            if selection is None:
+                if posCircleCollide(mouse.pos, slider.knob):
+                    slider.hover = True
+                    if mouse.left_click:
+                        slider.selected = True
+                        selection = slider
+                else:
+                    slider.hover = False
+            
+            if not mouse.left_click:
+                slider.selected = False
+                selection = None
+
+            slider.follow(mouse.pos)
+            slider.update()
+            slider.draw()
     
     # game start
     elif game_start:
@@ -483,7 +648,7 @@ while running:
             if key_r:
                 key_r = False
                 lose = False
-                Bateman.pos = (w/2, h/3)
+                Bateman.pos = (w/2, h/4)
                 Bateman.vec = (0, 0)
                 spawn = False
                 Bateman.update()
@@ -531,8 +696,8 @@ while running:
                         newHeight = old_height + offset
                         if newHeight > h-130:
                             newHeight = h-130
-                        if newHeight < h/4:
-                            newHeight = h/4
+                        if newHeight < h/3:
+                            newHeight = h/3
                         if randint(0,1) == 1:
                             boxes.append(Box((w, newHeight), (box_size, box_size/2), box_color, box_speed))
                         else:
@@ -550,8 +715,8 @@ while running:
             
             # damn bro, you suck
             elif lose:
-                font = pg.font.SysFont('comicsansms', 50)
-                screen.blit(font.render("U DED", True, (255, 255, 255)), (w/3, h/3))
+                font = pg.font.SysFont('GothamMedium', 100)
+                screen.blit(font.render("DEAD", True, (200, 50, 50)), (w/3, h/3))
 
             # UPDATE
             for box in boxes:
@@ -572,6 +737,16 @@ while running:
         
         # draw Bateman, boxes and background
         BG.draw()
+         # spotify currenlty listening handling
+        if posRectCollide(mouse.pos, listen.progressRect):
+            listen.selected = True
+        else:
+            listen.selected = False
+
+        listen.update()
+        listen.draw()
+
+        mouse.update()
         Bateman.draw()
         for box in boxes:
             box.draw()
@@ -580,14 +755,13 @@ while running:
     if ticks %10 == 0:
         pg.display.set_icon(icon_images[ticks%11])
 
-    # spotify currenlty listening handeling
+    # spotify currenlty listening handling
     if posRectCollide(mouse.pos, listen.progressRect):
         listen.selected = True
     else:
         listen.selected = False
 
-    listen.update()
-    listen.draw()
+
 
     mouse.update()
     
