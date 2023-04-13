@@ -64,6 +64,8 @@ timestamp = 0
 duration = 0
 artist = None
 selection = None
+track_name = None
+fps_counter = False
 
 black = (0, 0, 0)
 white = (255, 255, 255)
@@ -76,7 +78,7 @@ old_track_name = None
 current_track = 0
 jump_speed = 4
 g = 0
-volume = 50
+volume = 100
 bpm_multiplier = 1
 
 # __CLASSES__
@@ -165,7 +167,7 @@ class Background:
 
 # Button Class
 class Button:
-    def __init__(self, pos = tuple, dim = tuple, buttonColor = tuple, text = str, textColor = tuple, cornerRadius = 0):
+    def __init__(self, pos = tuple, dim = tuple, buttonColor = tuple, text = str, textColor = tuple, cornerRadius = 0, toggleable = False):
         self.pos = (pos[0]-dim[0]/2, pos[1]-dim[1]/2)
         self.centerPos = pos
         self.originalDimensions = dim
@@ -178,6 +180,8 @@ class Button:
         self.selected = False
         self.button_text = text
         self.borderRadius = int(cornerRadius)
+        self.toggleable = toggleable
+        self.clicked = False
 
     def updateFont(self):
         self.text = Text("freesansbold.ttf", self.dimensions[1]/3, self.button_text, self.text_color)
@@ -185,6 +189,23 @@ class Button:
                         self.pos[1]+(self.dimensions[1]-self.text.dimensions[1])/2)
 
     def update(self):
+        # if clicked while button is toggleable
+        if self.toggleable:
+            if self.clicked:
+                self.buttonColor = hueChange(self.originalButtonColor, 100)
+                self.text_color = hueChange(self.originalTextColor, 100)
+                self.dimensions = (self.originalDimensions[0]*1.1, self.originalDimensions[1]*1.1)
+                self.pos = (self.centerPos[0]-self.dimensions[0]/2, self.centerPos[1]-self.dimensions[1]/2)
+                self.rect = pg.Rect(self.pos, self.dimensions)
+                self.updateFont()
+            else:
+                self.buttonColor = self.originalButtonColor
+                self.text_color = self.originalTextColor
+                self.dimensions = self.originalDimensions
+                self.pos = (self.centerPos[0]-self.dimensions[0]/2, self.centerPos[1]-self.dimensions[1]/2)
+                self.rect = pg.Rect(self.pos, self.dimensions)
+                self.updateFont()
+        
         # if hover over button
         if self.selected:
             self.buttonColor = hueChange(self.originalButtonColor, 100)
@@ -194,7 +215,7 @@ class Button:
             self.rect = pg.Rect(self.pos, self.dimensions)
             self.updateFont()
         # if not hover over
-        else:
+        elif not self.toggleable:
             self.buttonColor = self.originalButtonColor
             self.text_color = self.originalTextColor
             self.dimensions = self.originalDimensions
@@ -217,7 +238,7 @@ class Text:
 
 # Slider class
 class Slider:
-    def __init__(self, pos1, pos2, thickness, color, variable_name, range, steps, text):
+    def __init__(self, pos1, pos2, thickness, color, variable_name, interval, step, text):
         self.pos1 = pos1
         self.pos2 = pos2
         self.thickness = thickness
@@ -225,17 +246,22 @@ class Slider:
         self.knob_color = (100, 100, 100)
         self.variable_name = variable_name
         self.variable_value = globals()[variable_name]
-        self.range = range
-        self.steps = steps
-        self.knob_pos = (mapValues(self.variable_value, range[0], range[1], pos1[0], pos2[0]), pos1[1])
+        self.interval = interval
+        self.step = step
+        self.knob_pos = (mapValues(self.variable_value, interval[0], interval[1], pos1[0], pos2[0]), pos1[1])
         self.hover = False
         self.selected = False
         self.knob = Circle(self.knob_pos, self.thickness)
         self.value = 0
         self.text_name = text
-        if steps != 0:
-            self.total_steps = (range[1]-range[0])/steps
         self.updateFont()
+        self.length = self.pos2[0]-self.pos1[0]
+        self.anker_points = []
+        if step != 0:
+            self.total_steps = (interval[1]-interval[0])/step
+            steps = self.interval[1]-self.interval[0]
+            for i in range(0, steps+1, self.step):
+                self.anker_points.append((self.pos1[0]+self.length/steps*i, self.pos1[1]))
     
     def follow(self, pos):
         if self.selected:
@@ -252,19 +278,22 @@ class Slider:
         else:
             self.knob_color = white
         
-        # limit movement of knob
+        # constrain knob within slider
         if self.knob.pos < self.pos1:
             self.knob.pos = self.pos1
         if self.knob.pos > self.pos2:
             self.knob.pos = self.pos2
 
-        # steps locking
-        if self.steps != 0:
-            pass
+        # knob snapping 
+        if self.step != 0:
+            size = (self.length/self.total_steps)
+            x = self.pos1[0]+size*round((self.knob.pos[0]-self.pos1[0])/size)
+            self.knob.pos = (x, self.knob.pos[1])
 
         # update assigned variable
-        self.value = mapValues(self.knob.pos[0], self.pos1[0], self.pos2[0], self.range[0], self.range[1])
-        globals()[self.variable_name] = self.value
+        self.value = mapValues(self.knob.pos[0], self.pos1[0], self.pos2[0], self.interval[0], self.interval[1])
+        globals()[self.variable_name] = round(self.value)
+
     
     def draw(self):
         pg.draw.line(screen, self.slider_color, self.pos1, self.pos2, self.thickness)
@@ -308,8 +337,8 @@ class Listening:
         self.progressBarLength = self.progressBarPos2[0]-self.progressBarPos1[0]
         self.progressRect = pg.Rect(self.progressBarPos1[0], self.progressBarPos1[1]-self.progressThickness/2,
         self.progressBarLength, self.progressThickness)
-        self.track_text_pos = (((self.pos[0]+self.size[1]*1.2)+(self.pos[0]+self.size[0]/1.1))/2, self.pos[1]+self.size[1]/3)
-        self.artist_text_pos = (((self.pos[0]+self.size[1]*1.2)+(self.pos[0]+self.size[0]/1.1))/2, self.pos[1]+self.size[1]/4*2)
+        self.track_text_pos = (((self.pos[0]+self.size[0]))/2, self.pos[1]+self.size[1]/3)
+        self.artist_text_pos = (((self.pos[0]+self.size[0]))/2, self.pos[1]+self.size[1]/4*2)
 
     def new(self, imgurl, length, artist, trackName):
         try:
@@ -318,12 +347,12 @@ class Listening:
             self.image_file = io.BytesIO(self.image_str)
             self.image = pg.image.load(self.image_file)
             # Scale the image
-            self.image = pg.transform.scale(self.image, (w//2, 2//2))
+            self.image = pg.transform.scale(self.image, (w/3, h/3))
 
-            # Convert the image to a numpy array
-            self.img_array = pg.surfarray.array2d(self.image)
-            self.blurred_img_array = ndimage.gaussian_filter(self.img_array, 5)
-            self.image = pg.surfarray.make_surface(self.blurred_img_array)
+            ## Convert the image to a numpy array
+            #self.img_array = pg.surfarray.array2d(self.image)
+            #self.blurred_img_array = ndimage.gaussian_filter(self.img_array, 5)
+            #self.image = pg.surfarray.make_surface(self.blurred_img_array)
 
             # Set the instance variables
             self.length = length
@@ -342,9 +371,9 @@ class Listening:
                                       self.track_text_pos[1]-self.track_text.dimensions[1]/2)
         
         # artist font render
-        self.artist_text = Text("GothamMedium.ttf", 13, self.track, (94, 94, 94))
-        self.artist_text_pos_offset = (self.track_text_pos[0]-self.track_text.dimensions[0]/2, 
-                                      self.track_text_pos[1]-self.track_text.dimensions[1]/2)
+        self.artist_text = Text("GothamMedium.ttf", 13, self.artist, (94, 94, 94))
+        self.artist_text_pos_offset = (self.artist_text_pos[0]-self.track_text.dimensions[0]/2, 
+                                      self.artist_text_pos[1]-self.track_text.dimensions[1]/2)
 
     def update(self):
         self.progress = timestamp*self.progressBarLength/self.length
@@ -357,7 +386,7 @@ class Listening:
         pg.draw.circle(screen, (94, 94, 94), self.progressBarPos1, self.progressThickness/2)
         pg.draw.circle(screen, (94, 94, 94), (self.progressBarPos1[0]+self.progressBarLength, self.progressBarPos1[1]), self.progressThickness/2)
         if self.image is not None:
-            screen.blit(self.image, (0,0))
+            screen.blit(self.image, self.pos)
         if self.progress is not None and self.length is not None:
             if self.selected:
                 pg.draw.line(screen, spotify_green, self.progressBarPos1, self.progressBarPos2, width=self.progressThickness)
@@ -371,6 +400,19 @@ class Listening:
         if self.artist_text is not None:
             screen.blit(self.artist_text.text, self.artist_text_pos_offset)
             screen.blit(self.track_text.text, self.track_text_pos_offset)
+
+
+# fps class
+class Fps:
+    def __init__(self):
+        self.fps = 0
+    
+    def update(self):
+        self.fps = clock.get_fps()
+        self.fps_text = Text("GothamMedium.ttf", 18, str(self.fps), spotify_green)
+    
+    def draw(self):
+        screen.blit(self.fps_text.text, (0, 0))
 
 # __FUNCTIONS__
 # Rectangle with Rectangle collision function
@@ -422,11 +464,16 @@ def searchSong():
     global current_track
     global timestamp
     global duration
+    global volume
 
     while running:
         # Get information about the track you are currently playing
         current_track = sp.current_user_playing_track()
         current_playback = sp.current_playback()
+        devices = sp.devices()
+
+        if devices["devices"][0]["is_active"] == True:
+            sp.volume(volume)
 
         # Check if there is a track currently playing
         if current_track is not None and current_track.get('item') is not None:
@@ -441,10 +488,12 @@ def searchSong():
             valence = features[0]["valence"]
             timestamp = current_playback["progress_ms"]
             duration = current_track["item"]["duration_ms"]
+            volume = devices["devices"][0]["volume_percent"]
             
             song_found = True
         else:
             song_found = False
+    
 
 
 # Return variable name from value
@@ -465,6 +514,7 @@ Bateman = Character((w/2, h/3), (character_size, character_size), white)
 energy, key, valence = 1, 0.3, 0.43
 BG = Background()
 mouse = Mouse()
+fps = Fps()
 listen = Listening((w-600, h-200), (600, 200))
 
 # Setup buttons
@@ -474,18 +524,18 @@ main_manu_buttons.append(Button((w/4*3, h/3), (w/3, h/6), white, "Quit", black, 
 main_manu_buttons.append(Button((w/4*2, h/1.7), (w/3, h/6), white, "Settings", black, h/8))
 settings_menu_buttons = []
 settings_menu_buttons.append(Button((w/6, h/11), (w/4, h/8), white, "Back", black, h/8))
+settings_menu_buttons.append(Button((w/3.5, h/8*5), (w/4, h/8), white, "fps", black, h/8, True))
 
 # Setup sliders
 settings_menu_sliders = []
-settings_menu_sliders.append(Slider((w/3.5, h/2), (w/4*3, h/2), 20, (94, 94, 94), "volume", (0, 100), 0, "Volume"))
-settings_menu_sliders.append(Slider((w/3.5, h/4), (w/4*3, h/4), 20, (94, 94, 94), "bpm_multiplier", (0, 4), 1, "Bpm scaler"))
+settings_menu_sliders.append(Slider((w/3.5, h/8*7), (w/4*3, h/8*7), 20, (94, 94, 94), "volume", (0, 100), 0, "Volume"))
+settings_menu_sliders.append(Slider((w/3.5, h/8*6), (w/4*3, h/8*6), 20, (94, 94, 94), "bpm_multiplier", (1, 4), 1, "Bpm scaler"))
 
 # Stagger time for Thread to catch up (Please optimize)
 time.sleep(0.4)
 
 # THE LOOP
 while running:
-    print(bpm_multiplier, volume)
     for event in pg.event.get():
 
         if event.type == pg.QUIT:
@@ -539,7 +589,10 @@ while running:
 
     #Draw listen in
     listen.update()
-    listen.draw()
+    if not settings:
+        listen.draw()
+
+
     # Main menu
     if not game_start and not settings:
         if listen.image is None and artist is not None and duration is not None:
@@ -581,6 +634,15 @@ while running:
                     if mouse.left_click:
                         if button.button_text == "Back":
                             settings = False
+                        if button.button_text == "fps":
+                            mouse.left_click = False
+                            if button.clicked:
+                                button.clicked = False
+                                fps_counter = False
+                            elif not button.clicked:
+                                button.clicked = True
+                                fps_counter = True
+
             else:
                 button.selected = False
 
@@ -608,6 +670,7 @@ while running:
             slider.follow(mouse.pos)
             slider.update()
             slider.draw()
+            
     
     # game start
     elif game_start:
@@ -618,7 +681,7 @@ while running:
             game_start = False
 
         # update music variables
-        bps = bpm/60
+        bps = (bpm/bpm_multiplier)/60
         box_speed = bps
 
         # gravity calulations
@@ -627,7 +690,7 @@ while running:
         x = (tick-box_size)
         y = max_distance
         g = -(2 * v0**2 * cos(angle)**2 * (x * tan(angle) - y))/x**2
-        jump_speed = 0.039*bpm
+        jump_speed = 0.039*(bps*60)
 
         # check for track change
         if type(current_track) != type(0) and current_track is not None and current_track["item"] is not None:
@@ -715,8 +778,8 @@ while running:
             
             # damn bro, you suck
             elif lose:
-                font = pg.font.SysFont('GothamMedium', 100)
-                screen.blit(font.render("DEAD", True, (200, 50, 50)), (w/3, h/3))
+                font = pg.font.SysFont('comicsans', 100)
+                screen.blit(font.render("benis", True, (200, 50, 50)), (w/4, h/3))
 
             # UPDATE
             for box in boxes:
@@ -764,7 +827,9 @@ while running:
 
 
     mouse.update()
-    
+    if fps_counter:
+        fps.update()
+        fps.draw()
 
     clock.tick(tick)
     ticks += 1
