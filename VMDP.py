@@ -12,10 +12,14 @@ import time
 from urllib.request import urlopen
 import io
 import scipy.ndimage as ndimage
+from PIL import Image, ImageFilter
+import numpy
 
 # setup
-w = 600
-h = 600
+OGw, OGh = 600, 600
+w, h = OGw, OGh
+pg.display.init()
+fullscreen  = (pg.display.Info().current_w, pg.display.Info().current_h)
 
 pg.font.init()
 pg.display.set_caption("Variable Music Defined Platformer")
@@ -66,14 +70,13 @@ artist = None
 selection = None
 track_name = None
 fps_counter = False
+pause = False
 
 black = (0, 0, 0)
 white = (255, 255, 255)
 red = (255, 0, 0)
 spotify_green = (29, 185, 84)
 ticks = 200
-old_height = h/1.5
-max_distance = h/5/2
 old_track_name = None
 current_track = 0
 jump_speed = 4
@@ -332,7 +335,7 @@ class Listening:
         self.selected = False
         self.progressThickness = 9
         self.boundingRect = pg.Rect(self.pos, self.size)
-        self.progressBarPos1 = (self.pos[0]+self.size[1]*1.2, self.pos[1]+self.size[1]/1.3)
+        self.progressBarPos1 = (self.pos[0]+50, self.pos[1]-50)
         self.progressBarPos2 = (self.pos[0]+self.size[0]/1.1, self.pos[1]+self.size[1]/1.3)
         self.progressBarLength = self.progressBarPos2[0]-self.progressBarPos1[0]
         self.progressRect = pg.Rect(self.progressBarPos1[0], self.progressBarPos1[1]-self.progressThickness/2,
@@ -341,28 +344,24 @@ class Listening:
         self.artist_text_pos = (((self.pos[0]+self.size[0]))/2, self.pos[1]+self.size[1]/4*2)
 
     def new(self, imgurl, length, artist, trackName):
-        try:
-            # Load the image using Pygame
-            self.image_str = urlopen(imgurl).read()
-            self.image_file = io.BytesIO(self.image_str)
-            self.image = pg.image.load(self.image_file)
-            # Scale the image
-            self.image = pg.transform.scale(self.image, (w/3, h/3))
+        ## Load the image using Pygame
+        self.image_str = urlopen(imgurl).read()
+        self.image_file = io.BytesIO(self.image_str)
 
-            ## Convert the image to a numpy array
-            #self.img_array = pg.surfarray.array2d(self.image)
-            #self.blurred_img_array = ndimage.gaussian_filter(self.img_array, 5)
-            #self.image = pg.surfarray.make_surface(self.blurred_img_array)
+        # blur image with the PIL library
+        self.image = Image.open(self.image_file)
+        # scale image to w, h size
+        self.image = self.image.resize((w, h), Image.ANTIALIAS)
+        # blur image    
+        self.image = self.image.filter(ImageFilter.GaussianBlur(radius=5))
+        # convert image to pygame image
+        self.image = pg.image.fromstring(self.image.tobytes(), self.image.size, self.image.mode)
 
-            # Set the instance variables
-            self.length = length
-            self.artist = artist
-            self.track = trackName
-            self.updateFont()
-
-        except Exception as e:
-            print("Error loading image:", e)
-
+        # Set the instance variables
+        self.length = length
+        self.artist = artist
+        self.track = trackName
+        self.updateFont()
 
     def updateFont(self):
         # track font render
@@ -387,6 +386,7 @@ class Listening:
         pg.draw.circle(screen, (94, 94, 94), (self.progressBarPos1[0]+self.progressBarLength, self.progressBarPos1[1]), self.progressThickness/2)
         if self.image is not None:
             screen.blit(self.image, self.pos)
+        
         if self.progress is not None and self.length is not None:
             if self.selected:
                 pg.draw.line(screen, spotify_green, self.progressBarPos1, self.progressBarPos2, width=self.progressThickness)
@@ -398,7 +398,7 @@ class Listening:
                 pg.draw.circle(screen, (255, 255, 255), self.progressBarPos1, self.progressThickness/2)
 
         if self.artist_text is not None:
-            screen.blit(self.artist_text.text, self.artist_text_pos_offset)
+            screen.blit(self.artist_text.text, self.artist_text_pos_offset, special_flags=pg.BLEND_RGB_MULT)
             screen.blit(self.track_text.text, self.track_text_pos_offset)
 
 
@@ -408,7 +408,7 @@ class Fps:
         self.fps = 0
     
     def update(self):
-        self.fps = clock.get_fps()
+        self.fps = int(clock.get_fps())
         self.fps_text = Text("GothamMedium.ttf", 18, str(self.fps), spotify_green)
     
     def draw(self):
@@ -495,7 +495,6 @@ def searchSong():
             song_found = False
     
 
-
 # Return variable name from value
 def keyReturn(value):
     dictonary = globals().copy()
@@ -504,32 +503,37 @@ def keyReturn(value):
             return key
 
 
+old_height = h/1.5
+max_distance = h/5/2
+Bateman = Character((w/2, h/3), (character_size, character_size), white)
+listen = Listening((0, 0), (600, 200))
+
+# Setup buttons
+main_menu_buttons = []
+main_menu_buttons.append(Button((w/4, h/3), (w/3, h/6), white, "Start Game", black, h/8))
+main_menu_buttons.append(Button((w/4*3, h/3), (w/3, h/6), white, "Quit", black, h/8))
+main_menu_buttons.append(Button((w/4*2, h/1.7), (w/3, h/6), white, "Settings", black, h/8))
+settings_menu_buttons = []
+settings_menu_buttons.append(Button((w/6, h/11), (w/4, h/8), white, "Back", black, h/8))
+settings_menu_buttons.append(Button((w/3.5, h/8*5), (w/4, h/8), white, "fps", black, h/8, True))
+settings_menu_buttons.append(Button((w/1.8, h/8*5), (w/4, h/8), white, "Fullscreen", black, h/8, True))
+
+# Setup sliders
+settings_menu_sliders = []
+settings_menu_sliders.append(Slider((w/3.5, h/8*7), (w/4*3, h/8*7), 20, (94, 94, 94), "volume", (0, 100), 0, "Volume"))
+settings_menu_sliders.append(Slider((w/3.5, h/8*6), (w/4*3, h/8*6), 20, (94, 94, 94), "bpm_multiplier", (1, 4), 1, "Bpm scaler"))
+
+
 # start thread
 thread = threading.Thread(target=searchSong)
 thread.start()
 
 #before loop setup
 boxes = []
-Bateman = Character((w/2, h/3), (character_size, character_size), white)
 energy, key, valence = 1, 0.3, 0.43
 BG = Background()
 mouse = Mouse()
 fps = Fps()
-listen = Listening((w-600, h-200), (600, 200))
-
-# Setup buttons
-main_manu_buttons = []
-main_manu_buttons.append(Button((w/4, h/3), (w/3, h/6), white, "Start Game", black, h/8))
-main_manu_buttons.append(Button((w/4*3, h/3), (w/3, h/6), white, "Quit", black, h/8))
-main_manu_buttons.append(Button((w/4*2, h/1.7), (w/3, h/6), white, "Settings", black, h/8))
-settings_menu_buttons = []
-settings_menu_buttons.append(Button((w/6, h/11), (w/4, h/8), white, "Back", black, h/8))
-settings_menu_buttons.append(Button((w/3.5, h/8*5), (w/4, h/8), white, "fps", black, h/8, True))
-
-# Setup sliders
-settings_menu_sliders = []
-settings_menu_sliders.append(Slider((w/3.5, h/8*7), (w/4*3, h/8*7), 20, (94, 94, 94), "volume", (0, 100), 0, "Volume"))
-settings_menu_sliders.append(Slider((w/3.5, h/8*6), (w/4*3, h/8*6), 20, (94, 94, 94), "bpm_multiplier", (1, 4), 1, "Bpm scaler"))
 
 # Stagger time for Thread to catch up (Please optimize)
 time.sleep(0.4)
@@ -597,7 +601,8 @@ while running:
     if not game_start and not settings:
         if listen.image is None and artist is not None and duration is not None:
             listen.new(current_track["item"]["album"]["images"][0]["url"], duration, artist, track_name)
-        for button in main_manu_buttons:
+            print("test")
+        for button in main_menu_buttons:
             if posRectCollide(mouse.pos, button.rect):
                 button.selected = True
                 if mouse.left_click:
@@ -608,6 +613,7 @@ while running:
                     if button.button_text == "Quit":
                         running = False
                     if button.button_text == "Settings":
+                        mouse.left_click = False
                         settings = True
             else:
                 button.selected = False
@@ -616,7 +622,7 @@ while running:
         if key_escape == True:
             running = False
         
-        for button in main_manu_buttons:
+        for button in main_menu_buttons:
             button.update()
             button.draw()
     
@@ -632,16 +638,37 @@ while running:
                 if selection is None:
                     button.selected = True
                     if mouse.left_click:
+                        mouse.left_click = False
+
                         if button.button_text == "Back":
                             settings = False
+
                         if button.button_text == "fps":
-                            mouse.left_click = False
                             if button.clicked:
                                 button.clicked = False
                                 fps_counter = False
                             elif not button.clicked:
                                 button.clicked = True
                                 fps_counter = True
+
+                        if button.button_text == "Fullscreen":
+                            
+                            if button.clicked:
+                                print("not clicked")
+                                button.clicked = False
+                                #w, h = OGw, OGh
+                                #screen = pg.display.set_mode((w,h))
+                                # update shape dimensions for all shapes
+                                print(pg.display.get_window_size())
+
+                            elif not button.clicked:
+                                print("clicked")
+                                button.clicked = True
+                                #w, h = (800, 800)
+                                #screen = pg.display.set_mode((w, h))
+                                # update shape dimensions for all shapes
+                                print(pg.display.get_window_size())
+            
 
             else:
                 button.selected = False
@@ -671,7 +698,6 @@ while running:
             slider.update()
             slider.draw()
             
-    
     # game start
     elif game_start:
 
@@ -692,23 +718,13 @@ while running:
         g = -(2 * v0**2 * cos(angle)**2 * (x * tan(angle) - y))/x**2
         jump_speed = 0.039*(bps*60)
 
-        # check for track change
-        if type(current_track) != type(0) and current_track is not None and current_track["item"] is not None:
-            if old_track_name != track_name:
-                old_track_name = track_name
-                BG.new(energy, key, valence, (bps/2, 0))
-                print("NEW TRACK!")
-                print("Now playing:", track_name, "at:", bpm, "bpm.")
-                spawn = False
-
-                # update currently playing
-                listen.new(current_track["item"]["album"]["images"][0]["url"], duration, artist, track_name)
-
         # check if a song is found, and it is playing
         if song_found and is_playing:
+            pause = False
 
             # reset
             if key_r:
+                #restart song
                 key_r = False
                 lose = False
                 Bateman.pos = (w/2, h/4)
@@ -794,9 +810,8 @@ while running:
         # if nothing is playing
         elif not is_playing:
             Bateman.pos = (w/2, h/3)
-            # pause bars
-            pg.draw.rect(screen, white, pg.Rect(w/9*3, h/4, w/9, h/4*2))
-            pg.draw.rect(screen, white, pg.Rect(w/9*5, h/4, w/9, h/4*2))
+            # Enable pausebars
+            pause = True
         
         # draw Bateman, boxes and background
         BG.draw()
@@ -814,6 +829,21 @@ while running:
         for box in boxes:
             box.draw()
 
+    # check for track change
+    if type(current_track) != type(0) and current_track is not None and current_track["item"] is not None:
+        if old_track_name != track_name:
+            old_track_name = track_name
+            BG.new(energy, key, valence, (bps/2, 0))
+            print("NEW TRACK!")
+            print("Now playing:", track_name, "at:", bpm, "bpm.")
+            spawn = False
+
+            # update currently playing
+            listen.new(current_track["item"]["album"]["images"][0]["url"], duration, artist, track_name)
+
+            #title zooms by
+            
+    
     # update icon
     if ticks %10 == 0:
         pg.display.set_icon(icon_images[ticks%11])
@@ -824,16 +854,20 @@ while running:
     else:
         listen.selected = False
 
-
-
     mouse.update()
     if fps_counter:
         fps.update()
         fps.draw()
+    
+    # song pause
+    if pause:
+        pg.draw.rect(screen, white, pg.Rect(w/9*3, h/4, w/9, h/4*2))
+        pg.draw.rect(screen, white, pg.Rect(w/9*5, h/4, w/9, h/4*2))
 
     clock.tick(tick)
     ticks += 1
     pg.display.flip()
+
 
 pg.display.quit()
 pg.quit()
