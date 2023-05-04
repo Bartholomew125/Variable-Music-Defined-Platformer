@@ -1,4 +1,4 @@
-# Variable-Music-Defined-Platformer
+# Beat Bounce Bonanza
 
 by Andreas Lindquist and Patrick Connon
 
