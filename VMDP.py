@@ -33,8 +33,8 @@ clock = pg.time.Clock()
 
 # SPOTIFY SETUP
 scope = "user-read-currently-playing"
-client_id = '5b68ffcb63924892995c6b9b02ead2e0'
-client_secret = 'e6bc5bd16c4741d38f4609d0e1c57440'
+client_id = ''
+client_secret = ''
 redirect_uri = 'http://localhost:8888/callback'
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri, scope=scope))
 
